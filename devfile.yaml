@@ -3,48 +3,81 @@ apiVersion: 1.0.0
 metadata:
   generateName: spring-batch-
 components:
-  -
+  - id: redhat/java11/latest
     type: chePlugin
-    id: redhat/java/latest
-  -
+  - id: redhat/dependency-analytics/latest
+    type: chePlugin
+  - mountSources: true
+    endpoints:
+      - name: 8080-tcp
+        port: 8080
     type: dockerimage
-    alias: maven
-    image: quay.io/eclipse/che-java11-maven:nightly
-    env:
-      - name: MAVEN_CONFIG
-        value: /home/user/.m2
-      - name: MAVEN_OPTS
-        value: "-XX:MaxRAMPercentage=50 -XX:+UseParallelGC -XX:MinHeapFreeRatio=10
-          -XX:MaxHeapFreeRatio=20 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90
-          -Dsun.zip.disableMemoryMapping=true -Xms20m -Djava.security.egd=file:/dev/./urandom
-          -Duser.home=/home/user"
-      - name: JAVA_OPTS
-        value: "-XX:MaxRAMPercentage=50 -XX:+UseParallelGC -XX:MinHeapFreeRatio=10
-          -XX:MaxHeapFreeRatio=20 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90
-          -Dsun.zip.disableMemoryMapping=true -Xms20m -Djava.security.egd=file:/dev/./urandom"
-      - name: JAVA_TOOL_OPTIONS
-        value: "-XX:MaxRAMPercentage=50 -XX:+UseParallelGC -XX:MinHeapFreeRatio=10
-          -XX:MaxHeapFreeRatio=20 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90
-          -Dsun.zip.disableMemoryMapping=true -Xms20m -Djava.security.egd=file:/dev/./urandom"
-    memoryLimit: 512Mi
-    mountSources: true
+    memoryLimit: 768Mi
     volumes:
       - name: m2
-        containerPath: /home/user/.m2
+        containerPath: /home/jboss/.m2
+    alias: maven
+    image: 'registry.redhat.io/codeready-workspaces/plugin-java11-rhel8'
+    env:
+      - value: '-XX:MaxRAMPercentage=50.0 -XX:+UseParallelGC -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xms20m -Djava.security.egd=file:/dev/./urandom -Duser.home=/home/jboss'
+        name: JAVA_OPTS
+      - value: $(JAVA_OPTS)
+        name: MAVEN_OPTS
 commands:
-  -
-    name: maven build
+  - name: 1. Build
     actions:
-      -
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
         type: exec
+        command: 'MAVEN_OPTS="-Xmx200m" && mvn -Duser.home=${HOME} -DskipTests clean install'
         component: maven
-        command: "mvn clean install"
-        workdir: ${CHE_PROJECTS_ROOT}/spring-batch
-  -
-    name: maven build and run
+  - name: 2. Run
     actions:
-      -
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
         type: exec
+        command: 'MAVEN_OPTS="-Xmx200m" && mvn -Duser.home=${HOME} spring-boot:run'
         component: maven
-        command: "mvn clean install && java -jar ./target/*.jar"
-        workdir: ${CHE_PROJECTS_ROOT}/spring-batch
+  - name: 3. Run in debug mode
+    actions:
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
+        type: exec
+        command: |-
+          mvn  -Duser.home=${HOME} spring-boot:run -Dspring-boot.run.jvmArguments="-Xdebug
+           -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5005"
+        component: maven
+  - name: 4. Run tests
+    actions:
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
+        type: exec
+        command: 'MAVEN_OPTS="-Xmx200m" && mvn -Duser.home=${HOME} verify'
+        component: maven
+  - name: 5. Log into deployment cluster
+    actions:
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
+        type: exec
+        command: |
+          echo
+          echo "Before you can deploy this application to an openshift cluster,"
+          echo "you must run 'oc login ...' in the maven terminal."
+          echo
+        component: maven
+  - name: 6. Deploy to OpenShift
+    actions:
+      - workdir: '${CHE_PROJECTS_ROOT}/spring-batch'
+        type: exec
+        command: 'mvn fabric8:deploy -Popenshift -DskipTests'
+        component: maven
+  - name: Debug remote java application
+    actions:
+      - referenceContent: |
+          {
+           "version": "0.2.0",
+           "configurations": [
+             {
+               "type": "java",
+               "name": "Debug (Attach) - Remote",
+               "request": "attach",
+               "hostName": "localhost",
+               "port": 5005
+             }]
+           }
+        type: vscode-launch
