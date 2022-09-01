@@ -1,0 +1,9 @@
+spring:
+  batch:
+    job:
+      enabled: false
+  datasource:
+    url: jdbc:postgresql://centos8s-1/springbatch
+    username: user
+    password: pass
+
